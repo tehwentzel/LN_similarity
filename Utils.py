@@ -42,6 +42,7 @@ class LNDataset():
         'HPV/P16 status': 'hpv',
         'Tumor subsite (BOT/Tonsil/Soft Palate/Pharyngeal wall/GPS/NOS)': 'subsite',
         'Total dose': 'total_dose',
+        'Therapeutic combination': 'treatment',
         'Smoking status at Diagnosis (Never/Former/Current)': 'smoking_status'
     }
     
