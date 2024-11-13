@@ -1,11 +1,12 @@
 import pandas as pd
 import numpy as np
 import re
+import math
 
 #for getting the fisher exact test
-import rpy2.robjects.numpy2ri
-from rpy2.robjects.packages import importr
-rpy2.robjects.numpy2ri.activate()
+# import rpy2.robjects.numpy2ri
+# from rpy2.robjects.packages import importr
+# rpy2.robjects.numpy2ri.activate()
 
 from scipy.cluster.hierarchy import fcluster, linkage, dendrogram
 from sklearn.base import ClusterMixin, BaseEstimator
@@ -580,14 +581,125 @@ def get_contingency_table(x, y):
             tabel[row_index, col_index] = len(rowset & colset)
     return tabel
 
+def _dfs(mat, pos, r_sum, c_sum, p_0, p):
+
+    (xx, yy) = pos
+    (r, c) = (len(r_sum), len(c_sum))
+
+    mat_new = []
+
+    for i in range(len(mat)):
+        temp = []
+        for j in range(len(mat[0])):
+            temp.append(mat[i][j])
+        mat_new.append(temp)
+
+    if xx == -1 and yy == -1:
+        for i in range(r-1):
+            temp = r_sum[i]
+            for j in range(c-1):
+                temp -= mat_new[i][j]
+            mat_new[i][c-1] = temp
+        for j in range(c-1):
+            temp = c_sum[j]
+            for i in range(r-1):
+                temp -= mat_new[i][j]
+            mat_new[r-1][j] = temp
+        temp = r_sum[r-1]
+        for j in range(c-1):
+            temp -= mat_new[r-1][j]
+        if temp <0:
+            return
+        mat_new[r-1][c-1] = temp
+
+        p_1 = 1
+        for x in r_sum:
+            p_1 *= math.factorial(x)
+        for y in c_sum:
+            p_1 *= math.factorial(y)
+
+        n = 0
+        for x in r_sum:
+            n += x
+        p_1 /= math.factorial(n)
+
+        for i in range(len(mat_new)):
+            for j in range(len(mat_new[0])):
+                p_1 /= math.factorial(mat_new[i][j])
+        if p_1 <= p_0 + 0.00000001:
+            #print(mat_new)
+            #print(p_1)
+            p[0] += p_1
+    else:
+        max_1 = r_sum[xx]
+        max_2 = c_sum[yy]
+        for j in range(c):
+            max_1 -= mat_new[xx][j]
+        for i in range(r):
+            max_2 -= mat_new[i][yy]
+        for k in range(min(max_1,max_2)+1):
+            mat_new[xx][yy] = k
+            if xx == r-2 and yy == c-2:
+                pos_new = (-1, -1)
+            elif xx == r-2:
+                pos_new = (0, yy+1)
+            else:
+                pos_new = (xx+1, yy)
+            _dfs(mat_new, pos_new, r_sum, c_sum, p_0, p)
+
+
+def fisher_exact_contingency(table):
+    table = table.astype(int)
+    row_sum = []
+    col_sum = []
+
+    for i in range(len(table)):
+        temp = 0
+        for j in range(len(table[0])):
+            temp += table[i][j]
+        row_sum.append(temp)
+    
+    for j in range(len(table[0])):
+        temp = 0
+        for i in range(len(table)):
+            temp += table[i][j]
+        col_sum.append(temp)
+
+    mat = [[0] * len(col_sum)] * len(row_sum)
+    pos = (0, 0)
+
+    p_0 = 1
+    for i in range(len(table)):
+        for j in range(len(table[0])):
+            p_0 /= math.factorial(table[i][j])
+            
+    n = 0
+    for x in row_sum:
+        p_0 *= math.factorial(int(x))
+        
+    for y in col_sum:
+        p_0 *= math.factorial(int(y))
+    n = 0
+    for x in row_sum:
+        n += x
+    p_0 /= math.factorial(n)
+
+    
+
+    p = [0]
+    _dfs(mat, pos, row_sum, col_sum, p_0, p)
+
+    return p[0]
+
 def fisher_exact_test(c_labels, y):
     if len(np.unique(y)) == 1:
         print('fisher test run with no positive class')
         return 0
     #call fishers test from r
     contingency = get_contingency_table(c_labels, y)
-    stats = importr('stats')
-    pval = stats.fisher_test(contingency,workspace=2e8)[0][0]
+    pval = fisher_exact_contingency(contingency)
+#     stats = importr('stats')
+#     pval = stats.fisher_test(contingency,workspace=2e8)[0][0]
     return pval
 
 def lg():
@@ -617,7 +729,11 @@ def get_cluster_correlations(dataset, clusters,
     clusters = clusters.ravel()
     for o in outcomes:
         y = data[o].values
-        pval = fisher_exact_test(clusters, y)
+        try:
+            pval = fisher_exact_test(clusters, y)
+        except Exception as e:
+            print('error geting fisher exact test')
+            pval = np.nan
         chi2_pval = chi2_contingency(get_contingency_table(clusters, y))[1]
         strat_AUC = stratified_lg_AUC(lg(), clusters, y)
         result_table[o] = {'fisher_exact': pval,  'chi2': chi2_pval,'LgCvAUC': strat_AUC}
